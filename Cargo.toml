@@ -1,0 +1,21 @@
+[package]
+name = "hochet"
+version = "0.1.0"
+description = "A machine-wide queue for the heavy commands of coding agents"
+keywords = ["cli", "queue", "flock", "agents"]
+categories = ["command-line-utilities"]
+edition = "2024"
+# std::fs::File::lock and try_lock
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/Brezinben/hochet"
+readme = "README.md"
+include = ["/src/**", "/LICENSE", "/README.md"]
+
+[dependencies]
+rustix = { version = "1", default-features = false, features = ["std"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,118 @@
+#:schema https://jouet.jdx.dev/schema/rules.json
+[[rule]]
+name = "heavy"
+why = "Several agents that build or run browser suites at once fill the disk and crash WSL."
+mode = "deny"
+scope = "plugin"
+author = "setup-quality-tooling"
+created = "2026-11-13"
+message = "This command is heavy: it goes through the machine-wide queue, which runs HOCHET_SLOTS heavy commands at a time (default 2). Prefix it with hochet. While it waits, hochet prints its place; `hochet status` lists who holds each slot."
+suggest = "hochet <the command>"
+
+[[rule.match]]
+command = "playwright test"
+[[rule.match]]
+command = "stryker run"
+[[rule.match]]
+command = "vitest run"
+text = ["^browser$|^contract$|^--project=(browser|contract)$"]
+[[rule.match]]
+command = "cargo build"
+[[rule.match]]
+command = "cargo test"
+[[rule.match]]
+command = "cargo check"
+[[rule.match]]
+command = "cargo clippy"
+[[rule.match]]
+command = "cargo nextest"
+[[rule.match]]
+command = "hk check"
+[[rule.match]]
+command = "pnpm install"
+[[rule.match]]
+command = "npm install"
+[[rule.match]]
+command = "bun install"
+[[rule.match]]
+command = "bun run"
+args = ["test:browser", "test:mutation", "test:contract"]
+[[rule.match]]
+command = "pnpm"
+args = ["test:browser", "test:mutation", "test:contract"]
+[[rule.match]]
+command = "pnpm run"
+args = ["test:browser", "test:mutation", "test:contract"]
+[[rule.match]]
+command = "npm run"
+args = ["test:browser", "test:mutation", "test:contract"]
+# npx, bunx and `bun x` hide the program from the matchers above.
+[[rule.match]]
+command = "npx"
+text = ["^(playwright|stryker)$"]
+unless_args = ["install"]
+[[rule.match]]
+command = "bunx"
+text = ["^(playwright|stryker)$"]
+unless_args = ["install"]
+[[rule.match]]
+command = "bun x"
+text = ["^(playwright|stryker)$"]
+unless_args = ["install"]
+[[rule.match]]
+command = "pnpm exec"
+text = ["^(playwright|stryker)$"]
+unless_args = ["install"]
+[[rule.match]]
+command = "pnpm dlx"
+text = ["^(playwright|stryker)$"]
+unless_args = ["install"]
+# jouet only warns on its own commands, even in deny mode.
+[[rule.match]]
+command = "jouet test"
+text = ["^(cargo|playwright|stryker|hk)$"]
+
+[rule.examples]
+fires = [
+  "playwright test -c .config/playwright.config.ts",
+  "cd web && vitest run --project browser",
+  "bun run test:browser",
+  "cd web && pnpm run test:contract",
+  "cargo test --workspace",
+  "mise x -- cargo clippy",
+  "bunx playwright test",
+  "hk check --all",
+  "vitest run --project=browser",
+  "pnpm exec playwright test",
+  "bun install",
+]
+quiet = [
+  "hochet playwright test",
+  "hochet bun run test:browser",
+  "hochet cargo test --workspace",
+  "hochet jouet test --cmd -- cargo test",
+  "jouet test --affected",
+  "cargo fmt",
+  "bun test tests/unit/",
+  "vitest run --project unit",
+  "bunx oxlint",
+  "npx playwright install chromium",
+]
+
+[[rule]]
+name = "force"
+why = "--force skips the queue: it is for a person at a terminal, who sees the machine's load."
+mode = "deny"
+scope = "plugin"
+author = "setup-quality-tooling"
+created = "2026-11-13"
+message = "An agent waits for a slot: `--force` is for a person at a terminal. Run the command without --force; `hochet status` shows the queue."
+suggest = "hochet <the command>"
+
+[[rule.match]]
+command = "hochet"
+flags = ["--force"]
+
+[rule.examples]
+fires = ["hochet --force cargo test", "cd web && hochet --force playwright test"]
+quiet = ["hochet cargo test", "hochet status"]
