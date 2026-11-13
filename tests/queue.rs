@@ -472,3 +472,64 @@ fn bad_resource_thresholds_exit_64() {
         );
     }
 }
+
+/// Runs `hochet sh -c` with `env` and returns the `CARGO_BUILD_JOBS` that the command saw.
+fn seen_jobs(m: &Machine, name: &str, prefix: &[&str], env: &[(&str, &str)]) -> String {
+    let file = m.file(name);
+    let script = format!("echo \"${{CARGO_BUILD_JOBS-unset}}\" > {}", file.display());
+    let mut args = prefix.to_vec();
+    args.extend(["sh", "-c", &script]);
+    let mut cmd = m.command(&args);
+    cmd.env_remove("HOCHET_JOBS").env_remove("CARGO_BUILD_JOBS");
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    assert!(cmd.output().unwrap().status.success());
+    fs::read_to_string(file).unwrap().trim_end().to_string()
+}
+
+#[test]
+fn hochet_jobs_sets_cargo_build_jobs_unless_already_set() {
+    let m = Machine::new("jobs", 2);
+    assert_eq!(seen_jobs(&m, "set", &[], &[("HOCHET_JOBS", "4")]), "4");
+    assert_eq!(
+        seen_jobs(
+            &m,
+            "kept",
+            &[],
+            &[("HOCHET_JOBS", "4"), ("CARGO_BUILD_JOBS", "7")]
+        ),
+        "7",
+        "HOCHET_JOBS replaced an explicit CARGO_BUILD_JOBS"
+    );
+    assert_eq!(seen_jobs(&m, "absent", &[], &[]), "unset");
+}
+
+#[test]
+fn a_nested_call_keeps_the_outer_jobs() {
+    let m = Machine::new("nested-jobs", 1);
+    let bin = env!("CARGO_BIN_EXE_hochet");
+    assert_eq!(
+        seen_jobs(
+            &m,
+            "nested",
+            &["env", "HOCHET_JOBS=8", bin],
+            &[("HOCHET_JOBS", "4")]
+        ),
+        "4"
+    );
+}
+
+#[test]
+fn bad_jobs_exit_64() {
+    let m = Machine::new("bad-jobs", 2);
+    for bad in ["0", "four", ""] {
+        let mut cmd = m.command(&["true"]);
+        cmd.env("HOCHET_JOBS", bad);
+        assert_eq!(
+            cmd.output().unwrap().status.code(),
+            Some(64),
+            "HOCHET_JOBS='{bad}' was accepted"
+        );
+    }
+}
