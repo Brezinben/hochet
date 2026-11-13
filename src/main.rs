@@ -15,8 +15,10 @@ use std::{env, process, thread};
 const USAGE: &str = "\
 hochet: a machine-wide queue for heavy commands (builds, browser and mutation suites).
   hochet CMD...          run CMD once one of HOCHET_SLOTS slots is free (default 2)
+  hochet -- CMD...       run CMD, even when its name starts with '-'
   hochet --force CMD...  run CMD now, without a slot (a person at a terminal only)
-  hochet status          list the held slots and the queue";
+  hochet status          list the held slots and the queue
+  hochet --version       print the version";
 
 // Not 2: in a Claude Code Stop hook, exit 2 blocks every reply.
 const EXIT_USAGE: u8 = 64;
@@ -36,15 +38,27 @@ fn main() -> ExitCode {
     };
     let queue = Queue::new(state_dir(), slots);
 
-    match args.first().and_then(|a| a.to_str()) {
-        None | Some("-h" | "--help") => usage(),
-        Some("status") => queue.status(),
-        Some("--force") if args.len() > 1 => run(&args[1..]),
-        Some("--force") => usage(),
-        // A heavy script run through hochet calls hochet again: the outer slot covers it.
-        _ if env::var_os("HOCHET_HELD").is_some() => run(&args),
-        _ => queue.wait_then_run(&args),
+    let cmd = match args.first().and_then(|a| a.to_str()) {
+        None | Some("-h" | "--help") => return usage(),
+        Some("--version") => {
+            println!("hochet {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Some("status") => return queue.status(),
+        Some("--force") if args.len() > 1 => return run(&args[1..]),
+        Some("--" | "--force") if args.len() == 1 => return usage(),
+        Some("--") => &args[1..],
+        Some(option) if option.starts_with('-') => {
+            eprintln!("hochet: unknown option '{option}'\n{USAGE}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+        _ => &args[..],
+    };
+    // A heavy script run through hochet calls hochet again: the outer slot covers it.
+    if env::var_os("HOCHET_HELD").is_some() {
+        return run(cmd);
     }
+    queue.wait_then_run(cmd)
 }
 
 fn usage() -> ExitCode {
