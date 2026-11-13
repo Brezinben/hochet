@@ -309,3 +309,47 @@ fn a_nested_call_still_checks_its_options() {
     assert!(dashed.output().unwrap().status.success());
     assert!(marker.exists(), "a nested -- CMD did not run at once");
 }
+
+#[test]
+fn a_waiter_names_each_holder_once_per_change() {
+    let m = Machine::new("holders", 1);
+    let slot = m.file("slot-0.lock");
+    let lock = fs::File::create(&slot).unwrap();
+    lock.lock().unwrap();
+    fs::write(&slot, "1\tcargo build\t/w/api.fix\tterminal\tpid 1\n").unwrap();
+    let mut waiter = m.command(&["true"]).stderr(Stdio::piped()).spawn().unwrap();
+    sleep(Duration::from_millis(1600));
+    fs::write(&slot, "1\tplaywright test\t/w/web.main\tterminal\tpid 2\n").unwrap();
+    sleep(Duration::from_millis(1600));
+    waiter.kill().unwrap();
+    let out = waiter.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let lines: Vec<&str> = stderr.lines().collect();
+    assert_eq!(lines.len(), 2, "one line per change expected: {stderr}");
+    assert!(
+        lines[0].starts_with("hochet: waiting at place 1; running: cargo build in api.fix ("),
+        "the waiter did not name the holder: {stderr}"
+    );
+    assert!(
+        lines[1].contains("running: playwright test in web.main ("),
+        "the waiter did not name the new holder: {stderr}"
+    );
+}
+
+#[test]
+fn a_slot_not_yet_written_is_announced_once() {
+    let m = Machine::new("unwritten", 1);
+    let slot = m.file("slot-0.lock");
+    let lock = fs::File::create(&slot).unwrap();
+    lock.lock().unwrap();
+    let mut waiter = m.command(&["true"]).stderr(Stdio::piped()).spawn().unwrap();
+    sleep(Duration::from_millis(1600));
+    waiter.kill().unwrap();
+    let out = waiter.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.lines().collect::<Vec<_>>(),
+        ["hochet: waiting at place 1"],
+        "{stderr}"
+    );
+}
