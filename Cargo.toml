@@ -13,7 +13,7 @@ readme = "README.md"
 include = ["/src/**", "/LICENSE", "/README.md"]
 
 [dependencies]
-rustix = { version = "1", default-features = false, features = ["std"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
 
 [profile.release]
 lto = true
