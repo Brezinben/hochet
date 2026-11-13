@@ -44,6 +44,8 @@ and exits 64.
 - `HOCHET_SLOTS` sets the number of slots. Set it in your shell profile so every agent sees
   the same value.
 - `HOCHET_DIR` moves the state (default `~/.cache/hochet`).
+- `HOCHET_JOBS=N` sets `CARGO_BUILD_JOBS=N` for CMD, so that two Rust builds in their slots
+  do not exhaust the memory. A `CARGO_BUILD_JOBS` already in the environment wins.
 - A heavy script that calls `hochet` again inside a held slot runs at once, on the same slot.
 
 ### Wait for memory and disk space
