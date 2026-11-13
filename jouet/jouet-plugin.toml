@@ -1,0 +1,3 @@
+name = "hochet"
+description = "Send heavy commands through hochet, the machine-wide queue"
+jouet = "0.0.4"

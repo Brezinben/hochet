@@ -1,0 +1,24 @@
+amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["cargo-fmt"] = Builtins.cargo_fmt
+  ["cargo-clippy"] = (Builtins.cargo_clippy) {
+    check = new CommandSpec { command = "cargo clippy --all-targets -- -D warnings" effect = "write" }
+  }
+  ["cargo-shear"] {
+    glob = List("Cargo.toml", "**/*.rs")
+    check = new CommandSpec { command = "mise x -- cargo-shear --deny-warnings" effect = "read" }
+  }
+  ["jactionlint"] {
+    glob = List(".github/workflows/*.yml")
+    batch = true
+    check = new CommandSpec { command = "mise x -- jactionlint {{ files }}" effect = "read" }
+  }
+}
+
+hooks {
+  ["pre-commit"] { fix = true stash = "git" steps = linters }
+  ["fix"] { fix = true steps = linters }
+  ["check"] { steps = linters }
+}
