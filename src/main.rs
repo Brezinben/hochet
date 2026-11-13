@@ -24,7 +24,6 @@ use clap::{Parser, Subcommand};
                       hochet --force [--] CMD...\n       \
                       hochet status",
     subcommand_negates_reqs = true,
-    args_conflicts_with_subcommands = true,
     disable_help_subcommand = true
 )]
 struct Cli {
@@ -37,20 +36,20 @@ struct Cli {
     #[arg(required = true, trailing_var_arg = true)]
     cmd: Vec<OsString>,
     /// Number of commands that run at once across the machine
-    #[arg(long, env = "HOCHET_SLOTS", default_value = "2")]
+    #[arg(long, global = true, env = "HOCHET_SLOTS", default_value = "2")]
     slots: NonZeroUsize,
-    /// Set CARGO_BUILD_JOBS for CMD, unless it is already set
+    /// Set CARGO_BUILD_JOBS for CMD, unless a non-empty one is already set
     // cargo reads its jobs as an i32.
-    #[arg(long, env = "HOCHET_JOBS", value_parser = clap::value_parser!(i32).range(1..))]
+    #[arg(long, global = true, env = "HOCHET_JOBS", value_parser = clap::value_parser!(i32).range(1..))]
     jobs: Option<i32>,
     /// Wait while the available memory is below this many GiB (0 turns the check off)
-    #[arg(long, env = "HOCHET_MIN_FREE_GB", default_value = "0", value_parser = gib)]
+    #[arg(long, global = true, env = "HOCHET_MIN_FREE_GB", default_value = "0", value_parser = gib)]
     min_free_gb: f64,
     /// Wait while the free disk space is below this many GiB (0 turns the check off)
-    #[arg(long, env = "HOCHET_MIN_DISK_GB", default_value = "0", value_parser = gib)]
+    #[arg(long, global = true, env = "HOCHET_MIN_DISK_GB", default_value = "0", value_parser = gib)]
     min_disk_gb: f64,
-    /// State directory [default: ~/.cache/hochet]
-    #[arg(long, env = "HOCHET_DIR")]
+    /// State directory [default: $XDG_CACHE_HOME/hochet, else ~/.cache/hochet]
+    #[arg(long, global = true, env = "HOCHET_DIR")]
     dir: Option<PathBuf>,
 }
 

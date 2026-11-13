@@ -247,6 +247,32 @@ fn clap_usage_errors_exit_64() {
             "hochet {args:?} did not exit 64"
         );
     }
+    let mut bad_env = m.command(&["true"]);
+    bad_env.env("HOCHET_JOBS", "0");
+    assert_eq!(
+        bad_env.output().unwrap().status.code(),
+        Some(64),
+        "HOCHET_JOBS=0 was accepted"
+    );
+}
+
+#[test]
+fn an_option_before_status_still_lists_the_queue() {
+    let m = Machine::new("option-status", 2);
+    for args in [&["--slots", "1", "status"][..], &["status", "--slots", "1"]] {
+        let out = m.output(args);
+        assert!(out.status.success(), "hochet {args:?} failed: {out:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "slot 0: free\n",
+            "hochet {args:?} did not list one slot"
+        );
+    }
+    assert_eq!(
+        m.output(&["--", "status"]).status.code(),
+        Some(127),
+        "-- status was not run as a command"
+    );
 }
 
 #[test]

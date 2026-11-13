@@ -31,6 +31,8 @@ hochet runs on Linux and macOS.
 ## Use
 
 ```text
+A machine-wide queue for heavy commands (builds, browser and mutation suites)
+
 Usage: hochet [OPTIONS] CMD...
        hochet -- CMD...
        hochet --force [--] CMD...
@@ -45,10 +47,10 @@ Arguments:
 Options:
       --force                      Run CMD now, without a slot (a person at a terminal only)
       --slots <SLOTS>              Number of commands that run at once across the machine [env: HOCHET_SLOTS=] [default: 2]
-      --jobs <JOBS>                Set CARGO_BUILD_JOBS for CMD, unless it is already set [env: HOCHET_JOBS=]
+      --jobs <JOBS>                Set CARGO_BUILD_JOBS for CMD, unless a non-empty one is already set [env: HOCHET_JOBS=]
       --min-free-gb <MIN_FREE_GB>  Wait while the available memory is below this many GiB (0 turns the check off) [env: HOCHET_MIN_FREE_GB=] [default: 0]
       --min-disk-gb <MIN_DISK_GB>  Wait while the free disk space is below this many GiB (0 turns the check off) [env: HOCHET_MIN_DISK_GB=] [default: 0]
-      --dir <DIR>                  State directory [default: ~/.cache/hochet] [env: HOCHET_DIR=]
+      --dir <DIR>                  State directory [default: $XDG_CACHE_HOME/hochet, else ~/.cache/hochet] [env: HOCHET_DIR=]
   -h, --help                       Print help
   -V, --version                    Print version
 ```
@@ -60,7 +62,7 @@ after CMD goes to CMD, options included.
 
 - `HOCHET_SLOTS` sets the number of slots. Set it in your shell profile so every agent sees
   the same value.
-- `HOCHET_DIR` moves the state.
+- `HOCHET_DIR` moves the state (default `$XDG_CACHE_HOME/hochet`, else `~/.cache/hochet`). An empty value is an error.
 - `HOCHET_JOBS=N` sets `CARGO_BUILD_JOBS=N` for CMD, so that two Rust builds in their slots
   do not exhaust the memory. A `CARGO_BUILD_JOBS` already in the environment wins.
 - A heavy script that calls `hochet` again inside a held slot runs at once, on the same slot.
