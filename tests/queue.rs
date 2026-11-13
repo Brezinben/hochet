@@ -398,6 +398,10 @@ fn short_memory_waits_then_starts_once_memory_is_back() {
         stderr.contains("memory short, 1.0 GiB free"),
         "the wait message does not say that memory is short: {stderr}"
     );
+    assert!(
+        stderr.contains("; running: sleep 30 in "),
+        "the shortage message does not name the holder: {stderr}"
+    );
 }
 
 #[test]
@@ -454,7 +458,11 @@ fn a_command_alone_starts_whatever_the_thresholds() {
 #[test]
 fn bad_resource_thresholds_exit_64() {
     let m = Machine::new("thresholds", 2);
-    for (name, value) in [("HOCHET_MIN_FREE_GB", "lots"), ("HOCHET_MIN_DISK_GB", "-1")] {
+    for (name, value) in [
+        ("HOCHET_MIN_FREE_GB", "lots"),
+        ("HOCHET_MIN_DISK_GB", "-1"),
+        ("HOCHET_MIN_FREE_GB", "inf"),
+    ] {
         let mut bad = m.command(&["true"]);
         bad.env(name, value);
         assert_eq!(

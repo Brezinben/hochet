@@ -60,11 +60,13 @@ threshold never blocks the queue for ever. The wait message gives the short reso
 free amount:
 
 ```console
-hochet: memory short, 1.3 GiB free, below HOCHET_MIN_FREE_GB=4, waiting at place 1 (hochet status)
+hochet: memory short, 1.3 GiB free, below HOCHET_MIN_FREE_GB=4, waiting at place 1; running: cargo build in api.fix (3m10s)
 ```
 
 macOS has no `MemAvailable`, so hochet skips the memory check there. The disk check works on
-Linux and macOS.
+Linux and macOS. A measure that hochet cannot read skips its check without a message. The disk
+check measures the file system of the working directory only, and inside a container
+`/proc/meminfo` shows the memory of the host, not the container limit.
 
 The tests replace the measures: `HOCHET_TEST_MEMINFO` names a file read instead of
 `/proc/meminfo`, and `HOCHET_TEST_DISK_FILE` names a file that holds the free disk space in GiB.

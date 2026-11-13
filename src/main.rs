@@ -219,13 +219,14 @@ impl Queue {
                 || reason != announced.1
                 || (!holders.is_empty() && holders != announced.2)
             {
-                match &short {
-                    Some(s) => eprintln!(
-                        "hochet: {} short, {:.1} GiB free, below {}={}, waiting at place {place}",
+                let lead = match &short {
+                    Some(s) => format!(
+                        "{} short, {:.1} GiB free, below {}={}, waiting at place {place}",
                         s.resource, s.free_gib, s.variable, s.min_gib
                     ),
-                    None => eprintln!("{}", waiting_message(place, &holders)),
-                }
+                    None => format!("waiting at place {place}"),
+                };
+                eprintln!("{}", waiting_message(&lead, &holders));
                 announced = (place, reason, holders);
             }
             thread::sleep(POLL);
@@ -386,7 +387,7 @@ fn describe(args: &[OsString]) -> String {
     )
 }
 
-fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
+fn waiting_message(lead: &str, holders: &[(u64, String)]) -> String {
     let now = unix_secs();
     let running: Vec<String> = holders
         .iter()
@@ -401,12 +402,9 @@ fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
         })
         .collect();
     if running.is_empty() {
-        return format!("hochet: waiting at place {place}");
+        return format!("hochet: {lead}");
     }
-    format!(
-        "hochet: waiting at place {place}; running: {}",
-        running.join(", ")
-    )
+    format!("hochet: {lead}; running: {}", running.join(", "))
 }
 
 fn age(secs: u64) -> String {
