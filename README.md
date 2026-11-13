@@ -32,9 +32,14 @@ hochet runs on Linux and macOS.
 
 ```text
 hochet CMD...          run CMD once one of HOCHET_SLOTS slots is free (default 2)
+hochet -- CMD...       run CMD, even when its name starts with '-'
 hochet --force CMD...  run CMD now, without a slot (a person at a terminal only)
 hochet status          list the held slots and the queue
+hochet --version       print the version
 ```
+
+Any other first argument that starts with `-` is an unknown option: hochet prints the usage
+and exits 64.
 
 - `HOCHET_SLOTS` sets the number of slots. Set it in your shell profile so every agent sees
   the same value.

@@ -205,10 +205,13 @@ fn usage_and_bad_slots_exit_64() {
     let m = Machine::new("usage", 2);
     let help = m.output(&["--help"]);
     assert_eq!(help.status.code(), Some(64));
+    let help = String::from_utf8_lossy(&help.stdout);
     assert!(
-        String::from_utf8_lossy(&help.stdout).contains("hochet status"),
+        help.contains("hochet status"),
         "--help does not list status"
     );
+    assert!(help.contains("--version"), "--help does not list --version");
+    assert!(help.contains("hochet -- CMD"), "--help does not list --");
     let mut bad = m.command(&["true"]);
     bad.env("HOCHET_SLOTS", "0");
     assert_eq!(
@@ -225,4 +228,84 @@ fn a_missing_command_exits_127() {
         m.output(&["hochet-no-such-command"]).status.code(),
         Some(127)
     );
+}
+
+#[test]
+fn an_unknown_option_exits_64_and_runs_nothing() {
+    let m = Machine::new("unknown", 2);
+    let marker = m.file("ran");
+    let out = m.output(&["--foo", "touch", marker.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(64), "--foo was not rejected");
+    assert!(
+        !marker.exists(),
+        "hochet ran a command after an unknown option"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("hochet status"),
+        "an unknown option did not print the usage on stderr"
+    );
+}
+
+#[test]
+fn version_prints_the_crate_version() {
+    let m = Machine::new("version", 2);
+    let out = m.output(&["--version"]);
+    assert!(out.status.success(), "--version did not exit 0");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout),
+        concat!("hochet ", env!("CARGO_PKG_VERSION"), "\n")
+    );
+}
+
+#[test]
+fn double_dash_queues_and_runs_the_command() {
+    let m = Machine::new("dashdash", 1);
+    let marker = m.file("ran");
+    let out = m.output(&["--", "touch", marker.to_str().unwrap()]);
+    assert!(out.status.success(), "hochet -- CMD failed: {out:?}");
+    assert!(marker.exists(), "hochet -- CMD did not run CMD");
+}
+
+#[test]
+fn double_dash_ends_the_options_everywhere() {
+    let m = Machine::new("dashes", 2);
+    assert_eq!(
+        m.output(&["--"]).status.code(),
+        Some(64),
+        "-- without a command was accepted"
+    );
+    let dash_named = m.output(&["--", "--force", "x"]);
+    assert_eq!(
+        dash_named.status.code(),
+        Some(127),
+        "-- --force was not run as a command"
+    );
+    let forced = m.file("forced");
+    assert!(
+        m.output(&["--force", "--", "touch", forced.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(forced.exists(), "--force -- CMD did not run CMD");
+}
+
+#[test]
+fn a_nested_call_still_checks_its_options() {
+    let m = Machine::new("nested-options", 1);
+    let marker = m.file("ran");
+    let mut unknown = m.command(&["--foo", "touch", marker.to_str().unwrap()]);
+    unknown.env("HOCHET_HELD", "1");
+    assert_eq!(
+        unknown.output().unwrap().status.code(),
+        Some(64),
+        "a nested --foo was run"
+    );
+    assert!(
+        !marker.exists(),
+        "a nested hochet ran a command after an unknown option"
+    );
+    let mut dashed = m.command(&["--", "touch", marker.to_str().unwrap()]);
+    dashed.env("HOCHET_HELD", "1");
+    assert!(dashed.output().unwrap().status.success());
+    assert!(marker.exists(), "a nested -- CMD did not run at once");
 }
