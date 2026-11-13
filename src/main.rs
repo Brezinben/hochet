@@ -45,8 +45,14 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Some("status") => return queue.status(),
-        Some("--force") if args.len() > 1 => return run(&args[1..]),
-        Some("--" | "--force") if args.len() == 1 => return usage(),
+        Some("--force") => {
+            let rest = &args[1..];
+            let rest = rest
+                .strip_prefix(&[OsString::from("--")][..])
+                .unwrap_or(rest);
+            return if rest.is_empty() { usage() } else { run(rest) };
+        }
+        Some("--") if args.len() == 1 => return usage(),
         Some("--") => &args[1..],
         Some(option) if option.starts_with('-') => {
             eprintln!("hochet: unknown option '{option}'\n{USAGE}");

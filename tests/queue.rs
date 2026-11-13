@@ -205,11 +205,11 @@ fn usage_and_bad_slots_exit_64() {
     let m = Machine::new("usage", 2);
     let help = m.output(&["--help"]);
     assert_eq!(help.status.code(), Some(64));
+    let help = String::from_utf8_lossy(&help.stdout);
     assert!(
-        String::from_utf8_lossy(&help.stdout).contains("hochet status"),
+        help.contains("hochet status"),
         "--help does not list status"
     );
-    let help = String::from_utf8_lossy(&help.stdout);
     assert!(help.contains("--version"), "--help does not list --version");
     assert!(help.contains("hochet -- CMD"), "--help does not list --");
     let mut bad = m.command(&["true"]);
@@ -264,4 +264,48 @@ fn double_dash_queues_and_runs_the_command() {
     let out = m.output(&["--", "touch", marker.to_str().unwrap()]);
     assert!(out.status.success(), "hochet -- CMD failed: {out:?}");
     assert!(marker.exists(), "hochet -- CMD did not run CMD");
+}
+
+#[test]
+fn double_dash_ends_the_options_everywhere() {
+    let m = Machine::new("dashes", 2);
+    assert_eq!(
+        m.output(&["--"]).status.code(),
+        Some(64),
+        "-- without a command was accepted"
+    );
+    let dash_named = m.output(&["--", "--force", "x"]);
+    assert_eq!(
+        dash_named.status.code(),
+        Some(127),
+        "-- --force was not run as a command"
+    );
+    let forced = m.file("forced");
+    assert!(
+        m.output(&["--force", "--", "touch", forced.to_str().unwrap()])
+            .status
+            .success()
+    );
+    assert!(forced.exists(), "--force -- CMD did not run CMD");
+}
+
+#[test]
+fn a_nested_call_still_checks_its_options() {
+    let m = Machine::new("nested-options", 1);
+    let marker = m.file("ran");
+    let mut unknown = m.command(&["--foo", "touch", marker.to_str().unwrap()]);
+    unknown.env("HOCHET_HELD", "1");
+    assert_eq!(
+        unknown.output().unwrap().status.code(),
+        Some(64),
+        "a nested --foo was run"
+    );
+    assert!(
+        !marker.exists(),
+        "a nested hochet ran a command after an unknown option"
+    );
+    let mut dashed = m.command(&["--", "touch", marker.to_str().unwrap()]);
+    dashed.env("HOCHET_HELD", "1");
+    assert!(dashed.output().unwrap().status.success());
+    assert!(marker.exists(), "a nested -- CMD did not run at once");
 }
