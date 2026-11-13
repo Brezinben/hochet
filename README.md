@@ -31,19 +31,36 @@ hochet runs on Linux and macOS.
 ## Use
 
 ```text
-hochet CMD...          run CMD once one of HOCHET_SLOTS slots is free (default 2)
-hochet -- CMD...       run CMD, even when its name starts with '-'
-hochet --force CMD...  run CMD now, without a slot (a person at a terminal only)
-hochet status          list the held slots and the queue
-hochet --version       print the version
+Usage: hochet [OPTIONS] CMD...
+       hochet -- CMD...
+       hochet --force [--] CMD...
+       hochet status
+
+Commands:
+  status  List the held slots and the queue
+
+Arguments:
+  <CMD>...  The command to run once a slot is free; put `--` before it when its name starts with '-'
+
+Options:
+      --force                      Run CMD now, without a slot (a person at a terminal only)
+      --slots <SLOTS>              Number of commands that run at once across the machine [env: HOCHET_SLOTS=] [default: 2]
+      --jobs <JOBS>                Set CARGO_BUILD_JOBS for CMD, unless it is already set [env: HOCHET_JOBS=]
+      --min-free-gb <MIN_FREE_GB>  Wait while the available memory is below this many GiB (0 turns the check off) [env: HOCHET_MIN_FREE_GB=] [default: 0]
+      --min-disk-gb <MIN_DISK_GB>  Wait while the free disk space is below this many GiB (0 turns the check off) [env: HOCHET_MIN_DISK_GB=] [default: 0]
+      --dir <DIR>                  State directory [default: ~/.cache/hochet] [env: HOCHET_DIR=]
+  -h, --help                       Print help
+  -V, --version                    Print version
 ```
 
-Any other first argument that starts with `-` is an unknown option: hochet prints the usage
-and exits 64.
+hochet reads each option from its environment variable when the option is not on the command
+line. A first argument that starts with `-` and is not an option is an error: hochet prints the
+usage and exits 64. An invalid value for an option or a variable also exits 64. Everything
+after CMD goes to CMD, options included.
 
 - `HOCHET_SLOTS` sets the number of slots. Set it in your shell profile so every agent sees
   the same value.
-- `HOCHET_DIR` moves the state (default `~/.cache/hochet`).
+- `HOCHET_DIR` moves the state.
 - `HOCHET_JOBS=N` sets `CARGO_BUILD_JOBS=N` for CMD, so that two Rust builds in their slots
   do not exhaust the memory. A `CARGO_BUILD_JOBS` already in the environment wins.
 - A heavy script that calls `hochet` again inside a held slot runs at once, on the same slot.
@@ -56,7 +73,7 @@ with a slot still free. Set a minimum, in GiB, and a command waits while the mac
 - `HOCHET_MIN_FREE_GB`: the minimum available memory (`MemAvailable` in `/proc/meminfo`).
 - `HOCHET_MIN_DISK_GB`: the minimum free space on the file system of the working directory.
 
-Unset or `0` turns a check off. A value that is not a number of 0 or more exits 64. The check
+Unset, empty or `0` turns a check off. A value that is not a number of 0 or more exits 64. The check
 applies only while another hochet command holds a slot. A command alone always starts, so a
 threshold never blocks the queue for ever. The wait message gives the short resource and its
 free amount:
