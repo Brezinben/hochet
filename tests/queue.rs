@@ -204,7 +204,7 @@ fn a_nested_call_uses_the_outer_slot() {
 fn usage_and_bad_slots_exit_64() {
     let m = Machine::new("usage", 2);
     let help = m.output(&["--help"]);
-    assert_eq!(help.status.code(), Some(64));
+    assert!(help.status.success(), "--help did not exit 0");
     let help = String::from_utf8_lossy(&help.stdout);
     assert!(
         help.contains("hochet status"),
@@ -218,6 +218,60 @@ fn usage_and_bad_slots_exit_64() {
         bad.output().unwrap().status.code(),
         Some(64),
         "HOCHET_SLOTS=0 was accepted"
+    );
+}
+
+#[test]
+fn help_names_every_user_variable() {
+    let m = Machine::new("help-env", 2);
+    let help = String::from_utf8(m.output(&["--help"]).stdout).unwrap();
+    for name in [
+        "HOCHET_SLOTS",
+        "HOCHET_JOBS",
+        "HOCHET_MIN_FREE_GB",
+        "HOCHET_MIN_DISK_GB",
+        "HOCHET_DIR",
+    ] {
+        assert!(help.contains(name), "--help does not name {name}: {help}");
+    }
+}
+
+/// clap exits 2 on its own errors: each one must reach the caller as 64.
+#[test]
+fn clap_usage_errors_exit_64() {
+    let m = Machine::new("clap-errors", 2);
+    for args in [&["--slots"][..], &["status", "extra"], &[]] {
+        assert_eq!(
+            m.output(args).status.code(),
+            Some(64),
+            "hochet {args:?} did not exit 64"
+        );
+    }
+    let mut bad_env = m.command(&["true"]);
+    bad_env.env("HOCHET_JOBS", "0");
+    assert_eq!(
+        bad_env.output().unwrap().status.code(),
+        Some(64),
+        "HOCHET_JOBS=0 was accepted"
+    );
+}
+
+#[test]
+fn an_option_before_status_still_lists_the_queue() {
+    let m = Machine::new("option-status", 2);
+    for args in [&["--slots", "1", "status"][..], &["status", "--slots", "1"]] {
+        let out = m.output(args);
+        assert!(out.status.success(), "hochet {args:?} failed: {out:?}");
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "slot 0: free\n",
+            "hochet {args:?} did not list one slot"
+        );
+    }
+    assert_eq!(
+        m.output(&["--", "status"]).status.code(),
+        Some(127),
+        "-- status was not run as a command"
     );
 }
 
