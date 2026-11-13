@@ -335,3 +335,21 @@ fn a_waiter_names_each_holder_once_per_change() {
         "the waiter did not name the new holder: {stderr}"
     );
 }
+
+#[test]
+fn a_slot_not_yet_written_is_announced_once() {
+    let m = Machine::new("unwritten", 1);
+    let slot = m.file("slot-0.lock");
+    let lock = fs::File::create(&slot).unwrap();
+    lock.lock().unwrap();
+    let mut waiter = m.command(&["true"]).stderr(Stdio::piped()).spawn().unwrap();
+    sleep(Duration::from_millis(1600));
+    waiter.kill().unwrap();
+    let out = waiter.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        stderr.lines().collect::<Vec<_>>(),
+        ["hochet: waiting at place 1"],
+        "{stderr}"
+    );
+}

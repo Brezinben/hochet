@@ -145,8 +145,12 @@ impl Queue {
         ))
     }
 
+    /// A slot locked but not yet written has no holder to name; the next poll will.
     fn holders(&self) -> Vec<(u64, String)> {
-        (0..self.slots).filter_map(|i| self.holder(i)).collect()
+        (0..self.slots)
+            .filter_map(|i| self.holder(i))
+            .filter(|(_, who)| !who.is_empty())
+            .collect()
     }
 
     fn status(&self) -> ExitCode {
@@ -195,10 +199,10 @@ impl Queue {
                 return run(args);
             }
             // The ages are left out of the comparison: they change every second.
-            let seen = (place, self.holders());
-            if seen != announced {
-                eprintln!("{}", waiting_message(place, &seen.1));
-                announced = seen;
+            let holders = self.holders();
+            if place != announced.0 || (!holders.is_empty() && holders != announced.1) {
+                eprintln!("{}", waiting_message(place, &holders));
+                announced = (place, holders);
             }
             thread::sleep(POLL);
         }
@@ -286,6 +290,9 @@ fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
             format!("{cmd} in {dir} ({})", age(now.saturating_sub(*since)))
         })
         .collect();
+    if running.is_empty() {
+        return format!("hochet: waiting at place {place}");
+    }
     format!(
         "hochet: waiting at place {place}; running: {}",
         running.join(", ")
