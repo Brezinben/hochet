@@ -46,6 +46,31 @@ and exits 64.
 - `HOCHET_DIR` moves the state (default `~/.cache/hochet`).
 - A heavy script that calls `hochet` again inside a held slot runs at once, on the same slot.
 
+### Wait for memory and disk space
+
+A slot count does not know how large each command is. Two cold builds can fill the memory
+with a slot still free. Set a minimum, in GiB, and a command waits while the machine has less:
+
+- `HOCHET_MIN_FREE_GB`: the minimum available memory (`MemAvailable` in `/proc/meminfo`).
+- `HOCHET_MIN_DISK_GB`: the minimum free space on the file system of the working directory.
+
+Unset or `0` turns a check off. A value that is not a number of 0 or more exits 64. The check
+applies only while another hochet command holds a slot. A command alone always starts, so a
+threshold never blocks the queue for ever. The wait message gives the short resource and its
+free amount:
+
+```console
+hochet: memory short, 1.3 GiB free, below HOCHET_MIN_FREE_GB=4, waiting at place 1; running: cargo build in api.fix (3m10s)
+```
+
+macOS has no `MemAvailable`, so hochet skips the memory check there. The disk check works on
+Linux and macOS. A measure that hochet cannot read skips its check without a message. The disk
+check measures the file system of the working directory only, and inside a container
+`/proc/meminfo` shows the memory of the host, not the container limit.
+
+The tests replace the measures: `HOCHET_TEST_MEMINFO` names a file read instead of
+`/proc/meminfo`, and `HOCHET_TEST_DISK_FILE` names a file that holds the free disk space in GiB.
+
 To keep the Claude Code Stop hook working on a machine without hochet, prefix it like this:
 
 ```json

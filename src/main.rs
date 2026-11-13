@@ -36,6 +36,13 @@ fn main() -> ExitCode {
             }
         },
     };
+    let limits = match Limits::from_env() {
+        Ok(limits) => limits,
+        Err(message) => {
+            eprintln!("hochet: {message}");
+            return ExitCode::from(EXIT_USAGE);
+        }
+    };
     let queue = Queue::new(state_dir(), slots);
 
     let cmd = match args.first().and_then(|a| a.to_str()) {
@@ -64,7 +71,7 @@ fn main() -> ExitCode {
     if env::var_os("HOCHET_HELD").is_some() {
         return run(cmd);
     }
-    queue.wait_then_run(cmd)
+    queue.wait_then_run(cmd, &limits)
 }
 
 fn usage() -> ExitCode {
@@ -168,7 +175,7 @@ impl Queue {
         ExitCode::SUCCESS
     }
 
-    fn wait_then_run(&self, args: &[OsString]) -> ExitCode {
+    fn wait_then_run(&self, args: &[OsString], limits: &Limits) -> ExitCode {
         let who = describe(args);
         let ticket = match self.enter(&who) {
             Ok(t) => t,
@@ -180,15 +187,22 @@ impl Queue {
                 return ExitCode::FAILURE;
             }
         };
-        let mut announced = (0, Vec::new());
+        let mut announced = (0, "", Vec::new());
         loop {
             let tickets = self.tickets();
             let place = tickets
                 .iter()
                 .position(|p| *p == ticket.path)
                 .map_or(0, |i| i + 1);
+            // A command alone always starts, so a threshold can never block the queue for ever.
+            let short = if place == 1 && self.any_slot_held() {
+                limits.shortage()
+            } else {
+                None
+            };
             // Only the head of the queue tries, so a late command cannot pass an earlier one.
             if place == 1
+                && short.is_none()
                 && let Some(slot) = self.take_slot(&who)
             {
                 let _ = fs::remove_file(&ticket.path);
@@ -198,11 +212,22 @@ impl Queue {
                 unsafe { env::set_var("HOCHET_HELD", "1") };
                 return run(args);
             }
-            // The ages are left out of the comparison: they change every second.
+            let reason = short.as_ref().map_or("slots", |s| s.resource);
             let holders = self.holders();
-            if place != announced.0 || (!holders.is_empty() && holders != announced.1) {
-                eprintln!("{}", waiting_message(place, &holders));
-                announced = (place, holders);
+            // The ages are left out of the comparison: they change every second.
+            if place != announced.0
+                || reason != announced.1
+                || (!holders.is_empty() && holders != announced.2)
+            {
+                let lead = match &short {
+                    Some(s) => format!(
+                        "{} short, {:.1} GiB free, below {}={}, waiting at place {place}",
+                        s.resource, s.free_gib, s.variable, s.min_gib
+                    ),
+                    None => format!("waiting at place {place}"),
+                };
+                eprintln!("{}", waiting_message(&lead, &holders));
+                announced = (place, reason, holders);
             }
             thread::sleep(POLL);
         }
@@ -227,6 +252,10 @@ impl Queue {
         Ok(Ticket { path, _lock: file })
     }
 
+    fn any_slot_held(&self) -> bool {
+        (0..self.slots).any(|i| held(&self.slot(i)))
+    }
+
     fn take_slot(&self, who: &str) -> Option<File> {
         (0..self.slots).find_map(|i| {
             let mut file = OpenOptions::new()
@@ -244,6 +273,88 @@ impl Queue {
             Some(file)
         })
     }
+}
+
+const GIB: f64 = (1u64 << 30) as f64;
+
+/// Minimum free amounts in GiB; 0 turns a check off.
+struct Limits {
+    memory: f64,
+    disk: f64,
+}
+
+struct Shortage {
+    resource: &'static str,
+    variable: &'static str,
+    free_gib: f64,
+    min_gib: f64,
+}
+
+impl Limits {
+    fn from_env() -> Result<Self, String> {
+        Ok(Self {
+            memory: gib_var("HOCHET_MIN_FREE_GB")?,
+            disk: gib_var("HOCHET_MIN_DISK_GB")?,
+        })
+    }
+
+    fn shortage(&self) -> Option<Shortage> {
+        let checks = [
+            (
+                "memory",
+                "HOCHET_MIN_FREE_GB",
+                self.memory,
+                free_memory as fn() -> Option<f64>,
+            ),
+            ("disk", "HOCHET_MIN_DISK_GB", self.disk, free_disk),
+        ];
+        checks
+            .into_iter()
+            .find_map(|(resource, variable, min_gib, measure)| {
+                if min_gib == 0.0 {
+                    return None;
+                }
+                // An unmeasurable resource (memory on macOS) never holds a command back.
+                let free_gib = measure()?;
+                (free_gib < min_gib).then_some(Shortage {
+                    resource,
+                    variable,
+                    free_gib,
+                    min_gib,
+                })
+            })
+    }
+}
+
+fn gib_var(name: &str) -> Result<f64, String> {
+    match env::var(name).as_deref() {
+        Err(_) | Ok("") => Ok(0.0),
+        Ok(text) => match text.parse::<f64>() {
+            Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
+            _ => Err(format!(
+                "{name} must be a number of GiB, 0 or more, not '{text}'"
+            )),
+        },
+    }
+}
+
+/// `MemAvailable` exists on Linux only. `HOCHET_TEST_MEMINFO` replaces `/proc/meminfo` in tests.
+fn free_memory() -> Option<f64> {
+    let path = env::var_os("HOCHET_TEST_MEMINFO").unwrap_or_else(|| "/proc/meminfo".into());
+    let text = fs::read_to_string(path).ok()?;
+    let line = text.lines().find_map(|l| l.strip_prefix("MemAvailable:"))?;
+    let kib: f64 = line.trim().strip_suffix("kB")?.trim().parse().ok()?;
+    Some(kib * 1024.0 / GIB)
+}
+
+/// Free space for CMD's working directory. `HOCHET_TEST_DISK_FILE` names a file that holds the
+/// free GiB, so tests do not depend on the real disk.
+fn free_disk() -> Option<f64> {
+    if let Some(path) = env::var_os("HOCHET_TEST_DISK_FILE") {
+        return fs::read_to_string(path).ok()?.trim().parse().ok();
+    }
+    let stat = rustix::fs::statvfs(env::current_dir().ok()?).ok()?;
+    Some((stat.f_bavail * stat.f_frsize) as f64 / GIB)
 }
 
 struct Ticket {
@@ -276,7 +387,7 @@ fn describe(args: &[OsString]) -> String {
     )
 }
 
-fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
+fn waiting_message(lead: &str, holders: &[(u64, String)]) -> String {
     let now = unix_secs();
     let running: Vec<String> = holders
         .iter()
@@ -291,12 +402,9 @@ fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
         })
         .collect();
     if running.is_empty() {
-        return format!("hochet: waiting at place {place}");
+        return format!("hochet: {lead}");
     }
-    format!(
-        "hochet: waiting at place {place}; running: {}",
-        running.join(", ")
-    )
+    format!("hochet: {lead}; running: {}", running.join(", "))
 }
 
 fn age(secs: u64) -> String {
