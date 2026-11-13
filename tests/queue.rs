@@ -353,3 +353,114 @@ fn a_slot_not_yet_written_is_announced_once() {
         "{stderr}"
     );
 }
+
+fn meminfo_gib(gib: u64) -> String {
+    format!("MemTotal: 99999999 kB\nMemAvailable: {} kB\n", gib << 20)
+}
+
+/// A waiter at the head of the queue, with a free slot and another command in a slot.
+fn spawn_resource_waiter(m: &mut Machine, name: &str, env: &[(&str, String)]) -> Child {
+    m.spawn(&["sleep", "30"]);
+    assert!(within(Duration::from_secs(3), || m
+        .status()
+        .contains("sleep 30")));
+    let mut cmd = m.command(&["touch", m.file(name).to_str().unwrap()]);
+    cmd.envs(env.iter().map(|(k, v)| (k, v)))
+        .stderr(Stdio::piped());
+    cmd.spawn().unwrap()
+}
+
+#[test]
+fn short_memory_waits_then_starts_once_memory_is_back() {
+    let mut m = Machine::new("memory", 2);
+    let meminfo = m.file("meminfo");
+    fs::write(&meminfo, meminfo_gib(1)).unwrap();
+    let waiter = spawn_resource_waiter(
+        &mut m,
+        "ran",
+        &[
+            ("HOCHET_MIN_FREE_GB", "4".into()),
+            ("HOCHET_TEST_MEMINFO", meminfo.display().to_string()),
+        ],
+    );
+    sleep(Duration::from_millis(1000));
+    assert!(
+        !m.file("ran").exists(),
+        "the command started with 1 GiB free and HOCHET_MIN_FREE_GB=4"
+    );
+    fs::write(&meminfo, meminfo_gib(8)).unwrap();
+    assert!(
+        within(Duration::from_secs(2), || m.file("ran").exists()),
+        "the command did not start once memory was back above the threshold"
+    );
+    let stderr = String::from_utf8(waiter.wait_with_output().unwrap().stderr).unwrap();
+    assert!(
+        stderr.contains("memory short, 1.0 GiB free"),
+        "the wait message does not say that memory is short: {stderr}"
+    );
+}
+
+#[test]
+fn short_disk_waits_while_another_command_runs() {
+    let mut m = Machine::new("disk", 2);
+    let disk = m.file("disk");
+    fs::write(&disk, "2").unwrap();
+    let waiter = spawn_resource_waiter(
+        &mut m,
+        "ran",
+        &[
+            ("HOCHET_MIN_DISK_GB", "10".into()),
+            ("HOCHET_TEST_DISK_FILE", disk.display().to_string()),
+        ],
+    );
+    sleep(Duration::from_millis(1000));
+    assert!(
+        !m.file("ran").exists(),
+        "the command started with 2 GiB of disk free and HOCHET_MIN_DISK_GB=10"
+    );
+    fs::write(&disk, "20").unwrap();
+    assert!(
+        within(Duration::from_secs(2), || m.file("ran").exists()),
+        "the command did not start once disk space was back above the threshold"
+    );
+    let stderr = String::from_utf8(waiter.wait_with_output().unwrap().stderr).unwrap();
+    assert!(
+        stderr.contains("disk short, 2.0 GiB free"),
+        "the wait message does not say that disk space is short: {stderr}"
+    );
+}
+
+#[test]
+fn a_command_alone_starts_whatever_the_thresholds() {
+    let m = Machine::new("alone", 2);
+    let meminfo = m.file("meminfo");
+    let disk = m.file("disk");
+    fs::write(&meminfo, meminfo_gib(0)).unwrap();
+    fs::write(&disk, "0").unwrap();
+    let ran = m.file("ran");
+    let mut cmd = m.command(&["touch", ran.to_str().unwrap()]);
+    cmd.env("HOCHET_MIN_FREE_GB", "1000")
+        .env("HOCHET_MIN_DISK_GB", "1000")
+        .env("HOCHET_TEST_MEMINFO", &meminfo)
+        .env("HOCHET_TEST_DISK_FILE", &disk);
+    let mut child = cmd.spawn().unwrap();
+    assert!(
+        within(Duration::from_secs(3), || ran.exists()),
+        "a command alone on the machine waited for memory or disk"
+    );
+    child.wait().unwrap();
+}
+
+#[test]
+fn bad_resource_thresholds_exit_64() {
+    let m = Machine::new("thresholds", 2);
+    for (name, value) in [("HOCHET_MIN_FREE_GB", "lots"), ("HOCHET_MIN_DISK_GB", "-1")] {
+        let mut bad = m.command(&["true"]);
+        bad.env(name, value);
+        assert_eq!(
+            bad.output().unwrap().status.code(),
+            Some(64),
+            "{name}={value} was accepted"
+        );
+    }
+}
