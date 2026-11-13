@@ -10,7 +10,7 @@ place.
 
 ```console
 $ hochet cargo test
-hochet: 2 slots busy, waiting at place 1 (hochet status)
+hochet: waiting at place 1; running: playwright test in app.feature-x (5m12s), cargo build in api.fix-y (1m35s)
 ...
 $ hochet status
 slot 0: 312s  playwright test   /home/me/app.feature-x   9f1c…   pid 4242
