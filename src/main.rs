@@ -131,18 +131,31 @@ impl Queue {
         paths
     }
 
+    /// The start time and the description of the command that holds slot `i`.
+    fn holder(&self, i: usize) -> Option<(u64, String)> {
+        let path = self.slot(i);
+        if !held(&path) {
+            return None;
+        }
+        let text = fs::read_to_string(&path).unwrap_or_default();
+        let (since, who) = text.trim_end().split_once('\t').unwrap_or(("", ""));
+        Some((
+            since.parse().unwrap_or_else(|_| unix_secs()),
+            who.to_owned(),
+        ))
+    }
+
+    fn holders(&self) -> Vec<(u64, String)> {
+        (0..self.slots).filter_map(|i| self.holder(i)).collect()
+    }
+
     fn status(&self) -> ExitCode {
         let now = unix_secs();
         for i in 0..self.slots {
-            let path = self.slot(i);
-            if !held(&path) {
-                println!("slot {i}: free");
-                continue;
+            match self.holder(i) {
+                None => println!("slot {i}: free"),
+                Some((since, who)) => println!("slot {i}: {}s  {who}", now.saturating_sub(since)),
             }
-            let text = fs::read_to_string(&path).unwrap_or_default();
-            let (since, who) = text.trim_end().split_once('\t').unwrap_or(("", ""));
-            let age = since.parse::<u64>().map_or(0, |s| now.saturating_sub(s));
-            println!("slot {i}: {age}s  {who}");
         }
         for (n, path) in self.tickets().iter().enumerate() {
             let who = fs::read_to_string(path).unwrap_or_default();
@@ -163,7 +176,7 @@ impl Queue {
                 return ExitCode::FAILURE;
             }
         };
-        let mut announced = 0;
+        let mut announced = (0, Vec::new());
         loop {
             let tickets = self.tickets();
             let place = tickets
@@ -181,12 +194,11 @@ impl Queue {
                 unsafe { env::set_var("HOCHET_HELD", "1") };
                 return run(args);
             }
-            if place != announced {
-                eprintln!(
-                    "hochet: {} slots busy, waiting at place {place} (hochet status)",
-                    self.slots
-                );
-                announced = place;
+            // The ages are left out of the comparison: they change every second.
+            let seen = (place, self.holders());
+            if seen != announced {
+                eprintln!("{}", waiting_message(place, &seen.1));
+                announced = seen;
             }
             thread::sleep(POLL);
         }
@@ -258,6 +270,34 @@ fn describe(args: &[OsString]) -> String {
         cwd.display(),
         process::id()
     )
+}
+
+fn waiting_message(place: usize, holders: &[(u64, String)]) -> String {
+    let now = unix_secs();
+    let running: Vec<String> = holders
+        .iter()
+        .map(|(since, who)| {
+            let mut fields = who.split('\t');
+            let cmd = fields.next().unwrap_or_default();
+            let dir = Path::new(fields.next().unwrap_or_default())
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy();
+            format!("{cmd} in {dir} ({})", age(now.saturating_sub(*since)))
+        })
+        .collect();
+    format!(
+        "hochet: waiting at place {place}; running: {}",
+        running.join(", ")
+    )
+}
+
+fn age(secs: u64) -> String {
+    match secs {
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m{:02}s", secs / 60, secs % 60),
+        _ => format!("{}h{:02}m", secs / 3600, secs % 3600 / 60),
+    }
 }
 
 fn is_hidden(path: &Path) -> bool {
