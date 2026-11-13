@@ -6,99 +6,103 @@
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{Seek, Write};
+use std::num::NonZeroUsize;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{env, process, thread};
 
-const USAGE: &str = "\
-hochet: a machine-wide queue for heavy commands (builds, browser and mutation suites).
-  hochet CMD...          run CMD once one of HOCHET_SLOTS slots is free (default 2)
-  hochet -- CMD...       run CMD, even when its name starts with '-'
-  hochet --force CMD...  run CMD now, without a slot (a person at a terminal only)
-  hochet status          list the held slots and the queue
-  hochet --version       print the version";
+use clap::{Parser, Subcommand};
+
+/// A machine-wide queue for heavy commands (builds, browser and mutation suites).
+#[derive(Parser)]
+#[command(
+    version,
+    override_usage = "hochet [OPTIONS] CMD...\n       \
+                      hochet -- CMD...\n       \
+                      hochet --force [--] CMD...\n       \
+                      hochet status",
+    subcommand_negates_reqs = true,
+    disable_help_subcommand = true
+)]
+struct Cli {
+    #[command(subcommand)]
+    status: Option<Status>,
+    /// Run CMD now, without a slot (a person at a terminal only)
+    #[arg(long)]
+    force: bool,
+    /// The command to run once a slot is free; put `--` before it when its name starts with '-'
+    #[arg(required = true, trailing_var_arg = true)]
+    cmd: Vec<OsString>,
+    /// Number of commands that run at once across the machine
+    #[arg(long, global = true, env = "HOCHET_SLOTS", default_value = "2")]
+    slots: NonZeroUsize,
+    /// Set CARGO_BUILD_JOBS for CMD, unless a non-empty one is already set
+    // cargo reads its jobs as an i32.
+    #[arg(long, global = true, env = "HOCHET_JOBS", value_parser = clap::value_parser!(i32).range(1..))]
+    jobs: Option<i32>,
+    /// Wait while the available memory is below this many GiB (0 turns the check off)
+    #[arg(long, global = true, env = "HOCHET_MIN_FREE_GB", default_value = "0", value_parser = gib)]
+    min_free_gb: f64,
+    /// Wait while the free disk space is below this many GiB (0 turns the check off)
+    #[arg(long, global = true, env = "HOCHET_MIN_DISK_GB", default_value = "0", value_parser = gib)]
+    min_disk_gb: f64,
+    /// State directory [default: $XDG_CACHE_HOME/hochet, else ~/.cache/hochet]
+    #[arg(long, global = true, env = "HOCHET_DIR")]
+    dir: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum Status {
+    /// List the held slots and the queue
+    Status,
+}
 
 // Not 2: in a Claude Code Stop hook, exit 2 blocks every reply.
 const EXIT_USAGE: u8 = 64;
 const POLL: Duration = Duration::from_millis(500);
 
 fn main() -> ExitCode {
-    let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let slots = match env::var("HOCHET_SLOTS").as_deref() {
-        Err(_) => 2,
-        Ok(text) => match text.parse::<usize>() {
-            Ok(n) if n > 0 => n,
-            _ => {
-                eprintln!("hochet: HOCHET_SLOTS must be a positive integer, not '{text}'");
-                return ExitCode::from(EXIT_USAGE);
-            }
-        },
-    };
-    let limits = match Limits::from_env() {
-        Ok(limits) => limits,
-        Err(message) => {
-            eprintln!("hochet: {message}");
-            return ExitCode::from(EXIT_USAGE);
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            let _ = err.print();
+            // --help and --version print to stdout and succeed; every real error is a usage error.
+            return ExitCode::from(if err.use_stderr() { EXIT_USAGE } else { 0 });
         }
     };
-    if let Some(text) = env::var_os("HOCHET_JOBS") {
-        let text = text.to_string_lossy();
-        // cargo reads its jobs as an i32.
-        let jobs = match text.parse::<i32>() {
-            Ok(n) if n > 0 => n,
-            _ => {
-                eprintln!("hochet: HOCHET_JOBS must be a positive integer, not '{text}'");
-                return ExitCode::from(EXIT_USAGE);
-            }
-        };
+    if let Some(jobs) = cli.jobs {
         // An explicit CARGO_BUILD_JOBS wins; in a nested call it holds the outer value.
         if env::var_os("CARGO_BUILD_JOBS").is_none_or(|v| v.is_empty()) {
             // SAFETY: single-threaded at this point; the variable reaches CMD only.
             unsafe { env::set_var("CARGO_BUILD_JOBS", jobs.to_string()) };
         }
     }
-    let queue = Queue::new(state_dir(), slots);
-
-    let cmd = match args.first().and_then(|a| a.to_str()) {
-        None | Some("-h" | "--help") => return usage(),
-        Some("--version") => {
-            println!("hochet {}", env!("CARGO_PKG_VERSION"));
-            return ExitCode::SUCCESS;
-        }
-        Some("status") => return queue.status(),
-        Some("--force") => {
-            let rest = &args[1..];
-            let rest = rest
-                .strip_prefix(&[OsString::from("--")][..])
-                .unwrap_or(rest);
-            return if rest.is_empty() { usage() } else { run(rest) };
-        }
-        Some("--") if args.len() == 1 => return usage(),
-        Some("--") => &args[1..],
-        Some(option) if option.starts_with('-') => {
-            eprintln!("hochet: unknown option '{option}'\n{USAGE}");
-            return ExitCode::from(EXIT_USAGE);
-        }
-        _ => &args[..],
-    };
+    let queue = Queue::new(cli.dir.unwrap_or_else(default_state_dir), cli.slots.get());
+    if cli.status.is_some() {
+        return queue.status();
+    }
     // A heavy script run through hochet calls hochet again: the outer slot covers it.
-    if env::var_os("HOCHET_HELD").is_some() {
-        return run(cmd);
+    if cli.force || env::var_os("HOCHET_HELD").is_some() {
+        return run(&cli.cmd);
     }
-    queue.wait_then_run(cmd, &limits)
+    let limits = Limits {
+        memory: cli.min_free_gb,
+        disk: cli.min_disk_gb,
+    };
+    queue.wait_then_run(&cli.cmd, &limits)
 }
 
-fn usage() -> ExitCode {
-    println!("{USAGE}");
-    ExitCode::from(EXIT_USAGE)
+fn gib(text: &str) -> Result<f64, String> {
+    match text.parse::<f64>() {
+        _ if text.is_empty() => Ok(0.0),
+        Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
+        _ => Err("expected a number of GiB, 0 or more".into()),
+    }
 }
 
-fn state_dir() -> PathBuf {
-    if let Some(dir) = env::var_os("HOCHET_DIR") {
-        return dir.into();
-    }
+fn default_state_dir() -> PathBuf {
     let cache = env::var_os("XDG_CACHE_HOME").map_or_else(
         || PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache"),
         PathBuf::from,
@@ -307,13 +311,6 @@ struct Shortage {
 }
 
 impl Limits {
-    fn from_env() -> Result<Self, String> {
-        Ok(Self {
-            memory: gib_var("HOCHET_MIN_FREE_GB")?,
-            disk: gib_var("HOCHET_MIN_DISK_GB")?,
-        })
-    }
-
     fn shortage(&self) -> Option<Shortage> {
         let checks = [
             (
@@ -339,18 +336,6 @@ impl Limits {
                     min_gib,
                 })
             })
-    }
-}
-
-fn gib_var(name: &str) -> Result<f64, String> {
-    match env::var(name).as_deref() {
-        Err(_) | Ok("") => Ok(0.0),
-        Ok(text) => match text.parse::<f64>() {
-            Ok(n) if n.is_finite() && n >= 0.0 => Ok(n),
-            _ => Err(format!(
-                "{name} must be a number of GiB, 0 or more, not '{text}'"
-            )),
-        },
     }
 }
 
