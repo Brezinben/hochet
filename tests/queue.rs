@@ -473,7 +473,7 @@ fn bad_resource_thresholds_exit_64() {
     }
 }
 
-/// Runs `hochet sh -c` with `env` and returns the `CARGO_BUILD_JOBS` that the command saw.
+/// Runs `hochet <prefix> sh -c` with `env` and returns the `CARGO_BUILD_JOBS` that sh saw.
 fn seen_jobs(m: &Machine, name: &str, prefix: &[&str], env: &[(&str, &str)]) -> String {
     let file = m.file(name);
     let script = format!("echo \"${{CARGO_BUILD_JOBS-unset}}\" > {}", file.display());
@@ -503,6 +503,21 @@ fn hochet_jobs_sets_cargo_build_jobs_unless_already_set() {
         "HOCHET_JOBS replaced an explicit CARGO_BUILD_JOBS"
     );
     assert_eq!(seen_jobs(&m, "absent", &[], &[]), "unset");
+    assert_eq!(
+        seen_jobs(&m, "plus", &[], &[("HOCHET_JOBS", "+4")]),
+        "4",
+        "HOCHET_JOBS was not normalised"
+    );
+    assert_eq!(
+        seen_jobs(
+            &m,
+            "empty",
+            &[],
+            &[("HOCHET_JOBS", "4"), ("CARGO_BUILD_JOBS", "")]
+        ),
+        "4",
+        "an empty CARGO_BUILD_JOBS blocked HOCHET_JOBS"
+    );
 }
 
 #[test]
@@ -523,7 +538,7 @@ fn a_nested_call_keeps_the_outer_jobs() {
 #[test]
 fn bad_jobs_exit_64() {
     let m = Machine::new("bad-jobs", 2);
-    for bad in ["0", "four", ""] {
+    for bad in ["0", "four", "", "3000000000"] {
         let mut cmd = m.command(&["true"]);
         cmd.env("HOCHET_JOBS", bad);
         assert_eq!(

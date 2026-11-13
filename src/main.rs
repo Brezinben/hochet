@@ -45,14 +45,18 @@ fn main() -> ExitCode {
     };
     if let Some(text) = env::var_os("HOCHET_JOBS") {
         let text = text.to_string_lossy();
-        if !matches!(text.parse::<usize>(), Ok(n) if n > 0) {
-            eprintln!("hochet: HOCHET_JOBS must be a positive integer, not '{text}'");
-            return ExitCode::from(EXIT_USAGE);
-        }
+        // cargo reads its jobs as an i32.
+        let jobs = match text.parse::<i32>() {
+            Ok(n) if n > 0 => n,
+            _ => {
+                eprintln!("hochet: HOCHET_JOBS must be a positive integer, not '{text}'");
+                return ExitCode::from(EXIT_USAGE);
+            }
+        };
         // An explicit CARGO_BUILD_JOBS wins; in a nested call it holds the outer value.
-        if env::var_os("CARGO_BUILD_JOBS").is_none() {
+        if env::var_os("CARGO_BUILD_JOBS").is_none_or(|v| v.is_empty()) {
             // SAFETY: single-threaded at this point; the variable reaches CMD only.
-            unsafe { env::set_var("CARGO_BUILD_JOBS", &*text) };
+            unsafe { env::set_var("CARGO_BUILD_JOBS", jobs.to_string()) };
         }
     }
     let queue = Queue::new(state_dir(), slots);
