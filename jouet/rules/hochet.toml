@@ -1,7 +1,7 @@
 #:schema https://jouet.jdx.dev/schema/rules.json
 [[rule]]
 name = "heavy"
-why = "Several agents that build or run browser suites at once fill the disk and crash WSL."
+why = "Several agents that build, type-check or run test suites at once fill the memory or the disk and crash WSL."
 mode = "deny"
 scope = "plugin"
 author = "setup-quality-tooling"
@@ -27,6 +27,14 @@ command = "cargo clippy"
 [[rule.match]]
 command = "cargo nextest"
 [[rule.match]]
+command = "tsc"
+[[rule.match]]
+command = "jest"
+# On a Yarn monorepo, `yarn workspace <name> test` and `yarn tsc` each take gigabytes.
+[[rule.match]]
+command = "yarn"
+args = ["tsc", "jest", "test", "test:*", "build", "build:*", "install"]
+[[rule.match]]
 command = "hk check"
 [[rule.match]]
 command = "pnpm install"
@@ -36,41 +44,41 @@ command = "npm install"
 command = "bun install"
 [[rule.match]]
 command = "bun run"
-args = ["test:browser", "test:mutation", "test:contract"]
+args = ["test:browser", "test:mutation", "test:contract", "tsc"]
 [[rule.match]]
 command = "pnpm"
-args = ["test:browser", "test:mutation", "test:contract"]
+args = ["test:browser", "test:mutation", "test:contract", "tsc"]
 [[rule.match]]
 command = "pnpm run"
-args = ["test:browser", "test:mutation", "test:contract"]
+args = ["test:browser", "test:mutation", "test:contract", "tsc"]
 [[rule.match]]
 command = "npm run"
-args = ["test:browser", "test:mutation", "test:contract"]
+args = ["test:browser", "test:mutation", "test:contract", "tsc"]
 # npx, bunx and `bun x` hide the program from the matchers above.
 [[rule.match]]
 command = "npx"
-text = ["^(playwright|stryker)$"]
+text = ["^(playwright|stryker|tsc|jest)$"]
 unless_args = ["install"]
 [[rule.match]]
 command = "bunx"
-text = ["^(playwright|stryker)$"]
+text = ["^(playwright|stryker|tsc|jest)$"]
 unless_args = ["install"]
 [[rule.match]]
 command = "bun x"
-text = ["^(playwright|stryker)$"]
+text = ["^(playwright|stryker|tsc|jest)$"]
 unless_args = ["install"]
 [[rule.match]]
 command = "pnpm exec"
-text = ["^(playwright|stryker)$"]
+text = ["^(playwright|stryker|tsc|jest)$"]
 unless_args = ["install"]
 [[rule.match]]
 command = "pnpm dlx"
-text = ["^(playwright|stryker)$"]
+text = ["^(playwright|stryker|tsc|jest)$"]
 unless_args = ["install"]
 # jouet only warns on its own commands, even in deny mode.
 [[rule.match]]
 command = "jouet test"
-text = ["^(cargo|playwright|stryker|hk)$"]
+text = ["^(cargo|playwright|stryker|hk|tsc|jest|yarn)$"]
 
 [rule.examples]
 fires = [
@@ -85,6 +93,14 @@ fires = [
   "vitest run --project=browser",
   "pnpm exec playwright test",
   "bun install",
+  "yarn tsc",
+  "cd app && yarn tsc 2>&1 | tail -15",
+  "CI=true yarn workspace backend test src/auth.test.ts",
+  "yarn test:e2e",
+  "npx tsc --noEmit",
+  "tsc -p tsconfig.json",
+  "jest --ci",
+  "pnpm run tsc",
 ]
 quiet = [
   "hochet playwright test",
@@ -97,6 +113,11 @@ quiet = [
   "vitest run --project unit",
   "bunx oxlint",
   "npx playwright install chromium",
+  "hochet yarn tsc",
+  "hochet yarn workspace backend test",
+  "yarn prettier --check packages/app",
+  "yarn workspace app lint",
+  "yarn add zod",
 ]
 
 [[rule]]
