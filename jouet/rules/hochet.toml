@@ -30,10 +30,30 @@ command = "cargo nextest"
 command = "tsc"
 [[rule.match]]
 command = "jest"
-# On a Yarn monorepo, `yarn workspace <name> test` and `yarn tsc` each take gigabytes.
+# A package manager runs a script by its first word: a matcher on any argument would deny `yarn add jest`.
 [[rule.match]]
 command = "yarn"
-args = ["tsc", "jest", "test", "test:*", "build", "build:*", "install"]
+max_args = 0
+[[rule.match]]
+command = "yarn install"
+[[rule.match]]
+command = "yarn tsc"
+[[rule.match]]
+command = "yarn jest"
+[[rule.match]]
+command = "yarn test*"
+[[rule.match]]
+command = "yarn build*"
+[[rule.match]]
+command = "yarn run test*"
+[[rule.match]]
+command = "yarn run build*"
+[[rule.match]]
+command = "yarn workspace * tsc"
+[[rule.match]]
+command = "yarn workspace * test*"
+[[rule.match]]
+command = "yarn workspace * build*"
 [[rule.match]]
 command = "hk check"
 [[rule.match]]
@@ -43,17 +63,46 @@ command = "npm install"
 [[rule.match]]
 command = "bun install"
 [[rule.match]]
-command = "bun run"
-args = ["test:browser", "test:mutation", "test:contract", "tsc"]
+command = "bun run tsc"
+[[rule.match]]
+command = "bun run jest"
+[[rule.match]]
+command = "bun run test*"
+[[rule.match]]
+command = "bun run build*"
+[[rule.match]]
+command = "bun test*"
+# jouet cannot tell that `web` in `pnpm --filter web build` is the option's value.
 [[rule.match]]
 command = "pnpm"
-args = ["test:browser", "test:mutation", "test:contract", "tsc"]
+flags = ["--filter", "-F"]
+args = ["tsc", "jest", "test*", "build*"]
 [[rule.match]]
-command = "pnpm run"
-args = ["test:browser", "test:mutation", "test:contract", "tsc"]
+command = "pnpm tsc"
 [[rule.match]]
-command = "npm run"
-args = ["test:browser", "test:mutation", "test:contract", "tsc"]
+command = "pnpm jest"
+[[rule.match]]
+command = "pnpm test*"
+[[rule.match]]
+command = "pnpm build*"
+[[rule.match]]
+command = "pnpm run tsc"
+[[rule.match]]
+command = "pnpm run jest"
+[[rule.match]]
+command = "pnpm run test*"
+[[rule.match]]
+command = "pnpm run build*"
+[[rule.match]]
+command = "npm run tsc"
+[[rule.match]]
+command = "npm run jest"
+[[rule.match]]
+command = "npm run test*"
+[[rule.match]]
+command = "npm run build*"
+[[rule.match]]
+command = "npm test*"
 # npx, bunx and `bun x` hide the program from the matchers above.
 [[rule.match]]
 command = "npx"
@@ -101,6 +150,17 @@ fires = [
   "tsc -p tsconfig.json",
   "jest --ci",
   "pnpm run tsc",
+  "yarn",
+  "bun test tests/unit/",
+  "pnpm test",
+  "pnpm --filter web build",
+  "npm test",
+  "npm run build",
+  "bun run jest",
+  "yarn install --immutable",
+  "yarn build:backend",
+  "yarn workspace app tsc",
+  "jouet test --cmd -- yarn tsc",
 ]
 quiet = [
   "hochet playwright test",
@@ -109,7 +169,6 @@ quiet = [
   "hochet jouet test --cmd -- cargo test",
   "jouet test --affected",
   "cargo fmt",
-  "bun test tests/unit/",
   "vitest run --project unit",
   "bunx oxlint",
   "npx playwright install chromium",
@@ -118,6 +177,15 @@ quiet = [
   "yarn prettier --check packages/app",
   "yarn workspace app lint",
   "yarn add zod",
+  "yarn add -D jest",
+  "yarn why jest",
+  "yarn workspace app add tsc",
+  "yarn eslint build",
+  "yarn workspace build lint",
+  "pnpm add -D jest",
+  "npm view jest version",
+  "bun add jest",
+  "pnpm lint",
 ]
 
 [[rule]]
