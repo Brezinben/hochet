@@ -1,6 +1,6 @@
 [package]
 name = "hochet"
-version = "0.1.0"
+version = "0.2.0"
 description = "A machine-wide queue for the heavy commands of coding agents"
 keywords = ["cli", "queue", "flock", "agents"]
 categories = ["command-line-utilities"]
